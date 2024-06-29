@@ -1,117 +1,40 @@
+from flask import Flask, request, jsonify
 import tensorflow as tf
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-import pandas as pd
-import os
+import numpy as np
+import io
 
-# Paramètres de base
-batch_size = 32
-img_height = 180
-img_width = 180
+app = Flask(__name__)
 
-# Chemins vers les fichiers CSV
-train_csv = 'C:\\Big_Projects\\archive\\train.csv'
-val_csv = 'C:\\Big_Projects\\archive\\val.csv'
-test_csv = 'C:\\Big_Projects\\archive\\test.csv'
+# Charger le modèle
+model = tf.keras.models.load_model('plant_recognition_model.keras')
 
-# Répertoires contenant les images
-base_dir = 'C:\\Big_Projects\\archive'
+# Classes de plantes
+class_names = [
+    'aloevera', 'banane', 'bilimbi', 'cantaloupe', 'cassava', 'coconut',
+    'corn', 'cucumber', 'curcuma', 'eggplant', 'galangal', 'ginger',
+    'guava', 'kale', 'longbeans', 'mango', 'melon', 'orange', 'paddy',
+    'papaya', 'peperchili', 'pineapple', 'pomelo', 'shalot', 'soybeans',
+    'spinach', 'sweetpotatoes', 'tabaco', 'waterapple', 'watermelon'
+]
 
-# Fonction pour charger les données à partir des CSVs
-def load_data(csv_file, base_dir):
-    """
-    Charge les chemins de fichiers et les labels à partir d'un fichier CSV.
+@app.route('/predict', methods=['POST'])
+def predict():
+    file = request.files['file']
+    img = tf.keras.preprocessing.image.load_img(io.BytesIO(file.read()), target_size=(180, 180))
+    img_array = tf.keras.preprocessing.image.img_to_array(img)
+    img_array = np.expand_dims(img_array, 0)  # Create batch axis
+    img_array /= 255.0  # Normalisation
 
-    Args:
-        csv_file (str): Chemin vers le fichier CSV.
-        base_dir (str): Répertoire de base contenant les images.
+    predictions = model.predict(img_array)
+    predicted_class = class_names[np.argmax(predictions[0])]
 
-    Returns:
-        (pd.Series, pd.Series): Séries contenant les chemins de fichiers et les labels.
-    """
-    df = pd.read_csv(csv_file)
-    filepaths = df['image:FILE'].apply(lambda x: os.path.join(base_dir, x))
-    labels = df['category']
-    return filepaths, labels
+    print(f'tonga tato')
+    
+    return jsonify({'prediction': predicted_class})
 
-# Charger les données
-train_filepaths, train_labels = load_data(train_csv, base_dir)
-val_filepaths, val_labels = load_data(val_csv, base_dir)
-test_filepaths, test_labels = load_data(test_csv, base_dir)
+@app.route('/', methods=['GET'])
+def index():
+    return "Flask server is running!"
 
-# Création des DataGenerators
-train_datagen = ImageDataGenerator(
-    rescale=1./255,
-    rotation_range=20,
-    width_shift_range=0.2,
-    height_shift_range=0.2,
-    shear_range=0.2,
-    zoom_range=0.2,
-    horizontal_flip=True,
-    fill_mode='nearest'
-)
-
-val_datagen = ImageDataGenerator(rescale=1./255)
-test_datagen = ImageDataGenerator(rescale=1./255)
-
-# Création des générateurs de données à partir des DataFrames
-train_generator = train_datagen.flow_from_dataframe(
-    dataframe=pd.DataFrame({'filename': train_filepaths, 'class': train_labels}),
-    x_col='filename',
-    y_col='class',
-    target_size=(img_height, img_width),
-    batch_size=batch_size,
-    class_mode='raw'
-)
-
-val_generator = val_datagen.flow_from_dataframe(
-    dataframe=pd.DataFrame({'filename': val_filepaths, 'class': val_labels}),
-    x_col='filename',
-    y_col='class',
-    target_size=(img_height, img_width),
-    batch_size=batch_size,
-    class_mode='raw'
-)
-
-test_generator = test_datagen.flow_from_dataframe(
-    dataframe=pd.DataFrame({'filename': test_filepaths, 'class': test_labels}),
-    x_col='filename',
-    y_col='class',
-    target_size=(img_height, img_width),
-    batch_size=batch_size,
-    class_mode='raw',
-    shuffle=False
-)
-
-# Définir le modèle CNN
-model = tf.keras.Sequential([
-    tf.keras.layers.InputLayer(input_shape=(img_height, img_width, 3)),
-    tf.keras.layers.Conv2D(32, (3, 3), activation='relu'),
-    tf.keras.layers.MaxPooling2D((2, 2)),
-    tf.keras.layers.Conv2D(64, (3, 3), activation='relu'),
-    tf.keras.layers.MaxPooling2D((2, 2)),
-    tf.keras.layers.Conv2D(128, (3, 3), activation='relu'),
-    tf.keras.layers.MaxPooling2D((2, 2)),
-    tf.keras.layers.Flatten(),
-    tf.keras.layers.Dense(128, activation='relu'),
-    tf.keras.layers.Dense(len(train_labels.unique()), activation='softmax')
-])
-
-# Compiler le modèle
-model.compile(optimizer='adam',
-              loss='sparse_categorical_crossentropy',
-              metrics=['accuracy'])
-
-# Entraîner le modèle
-epochs = 10
-history = model.fit(
-    train_generator,
-    validation_data=val_generator,
-    epochs=epochs
-)
-
-# Évaluer le modèle
-loss, accuracy = model.evaluate(test_generator)
-print(f'Test accuracy: {accuracy}')
-
-# Sauvegarder le modèle au format recommandé par Keras
-model.save('plant_recognition_model.keras')
+if __name__ == '__main__':
+    app.run(debug=True)
